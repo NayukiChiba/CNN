@@ -212,6 +212,9 @@ plans/
 # 数据集
 datasets/
 
+# 模型权重
+checkpoints/
+
 # 输出
 outputs/
 
