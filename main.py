@@ -10,9 +10,10 @@ Responsibility:
   3. Dispatch to train / eval / infer subcommand based on args.command.
 
 Usage:
-    python main.py train  --epochs 50
-    python main.py eval   --checkpoint checkpoints/best_model.pth
-    python main.py infer  --image test.png --checkpoint checkpoints/best_model.pth
+    python main.py [global args] <subcommand> [subcommand args]
+    python main.py --device cuda --seed 42 train --epochs 50
+    python main.py --config my_config.yaml eval --checkpoint best.pth
+    python main.py infer --image test.png --checkpoint best.pth
 """
 
 import argparse
