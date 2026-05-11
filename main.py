@@ -23,7 +23,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import torch
 
-from config.settings import getSettings
+from config.cli import getSettings
 
 # ============================================================================
 # Subcommand handlers
@@ -96,7 +96,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     # argparse sets dest="command" to None when no subparser is matched.
     if args.command is None:
         # Lazily import buildParser only when needed (small optimization).
-        from config.settings import buildParser
+        from config.cli import buildParser
 
         buildParser().print_help()
         return

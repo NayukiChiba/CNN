@@ -1,9 +1,6 @@
-from config.default_params import (
-    DataParams,
-    DefaultParams,
-    ModelParams,
-    TrainingParams,
-)
+from config.cli import buildParser, getSettings
+from config.data import DataParams
+from config.defaults import DefaultParams
 from config.paths import (
     BEST_MODEL_PATH,
     CHECKPOINTS_DIR,
@@ -14,8 +11,16 @@ from config.paths import (
     OUTPUTS_DIR,
     ROOT_DIR,
     VISUALIZATIONS_DIR,
+    ensureDir,
+    getBestModelPath,
+    getCheckpointDir,
+    getLastModelPath,
+    getLogDir,
+    getOutputDir,
+    getTensorboardDir,
+    getVisualizationDir,
 )
-from config.settings import buildParser, getSettings
+from config.training import TrainingParams
 
 __all__ = [
     # 路径
@@ -28,12 +33,20 @@ __all__ = [
     "VISUALIZATIONS_DIR",
     "BEST_MODEL_PATH",
     "LAST_MODEL_PATH",
-    # 默认参数类
+    # 运行时路径函数
+    "ensureDir",
+    "getCheckpointDir",
+    "getBestModelPath",
+    "getLastModelPath",
+    "getOutputDir",
+    "getLogDir",
+    "getTensorboardDir",
+    "getVisualizationDir",
+    # 默认参数
     "DefaultParams",
     "DataParams",
-    "ModelParams",
     "TrainingParams",
-    # 设置
+    # CLI
     "buildParser",
     "getSettings",
 ]
