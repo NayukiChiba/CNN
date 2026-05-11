@@ -32,7 +32,6 @@ from cnnlib.data.transform import build_transform
 _TORCHVISION_CLASS = {
     "mnist": datasets.MNIST,
     "fashionmnist": datasets.FashionMNIST,
-    "kmnist": datasets.KMNIST,
     "emnist": datasets.EMNIST,
     "cifar10": datasets.CIFAR10,
     "cifar100": datasets.CIFAR100,
@@ -85,16 +84,25 @@ def build_dataloaders(
     dataset_cls = _TORCHVISION_CLASS[dataset_name]
     data_root = Path(data_dir)
 
+    # 查注册表拿元信息（含各数据集的特殊构造参数）
+    from cnnlib.registry.datasets import get_dataset_info
+
+    dataset_info = get_dataset_info(dataset_name)
+
     # 构建 transform
     train_transform = build_transform(model_name, dataset_name, augment=True)
     eval_transform = build_transform(model_name, dataset_name, augment=False)
 
+    # 构造参数：默认 train=True/False，SVHN/EMNIST 等通过注册表覆盖
+    train_kwargs = dataset_info.get("train_kwargs", {"train": True})
+    test_kwargs = dataset_info.get("test_kwargs", {"train": False})
+
     # 加载原始数据集
     train_full = dataset_cls(
-        root=str(data_root), train=True, download=True, transform=train_transform
+        root=str(data_root), download=True, transform=train_transform, **train_kwargs
     )
     test_dataset = dataset_cls(
-        root=str(data_root), train=False, download=True, transform=eval_transform
+        root=str(data_root), download=True, transform=eval_transform, **test_kwargs
     )
 
     # 切分 train / val

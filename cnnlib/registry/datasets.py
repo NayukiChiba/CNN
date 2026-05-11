@@ -18,9 +18,12 @@
 
 from typing import Any, Dict, List
 
-# 每个条目记录一个数据集的全部元信息,加一行即接入新数据集
+# train_kwargs / test_kwargs:
+#   透传给 torchvision 数据集类的构造参数（root, download, transform 由 loader 统一注入）
+#   默认 {"train": True} / {"train": False}；SVHN、EMNIST 等需要特殊构造时在此覆盖
+
 datasets: Dict[str, Dict[str, Any]] = {
-    # -- 灰度 28x28 --
+    # ── 灰度 28×28 ──────────────────────────────────────
     "mnist": {
         "channels": 1,
         "num_classes": 10,
@@ -44,8 +47,11 @@ datasets: Dict[str, Dict[str, Any]] = {
         "mean": (0.1736,),
         "std": (0.3317,),
         "description": "EMNIST letters + digits (47 classes)",
+        # EMNIST 需要指定 split，且同时传 train
+        "train_kwargs": {"split": "balanced", "train": True},
+        "test_kwargs": {"split": "balanced", "train": False},
     },
-    # -- RGB 32x32 --
+    # ── RGB 32×32 ───────────────────────────────────────
     "cifar10": {
         "channels": 3,
         "num_classes": 10,
@@ -69,8 +75,11 @@ datasets: Dict[str, Dict[str, Any]] = {
         "mean": (0.4377, 0.4438, 0.4728),
         "std": (0.1980, 0.2010, 0.1970),
         "description": "SVHN street view house numbers (10 classes)",
+        # SVHN 用 split= 而非 train=
+        "train_kwargs": {"split": "train"},
+        "test_kwargs": {"split": "test"},
     },
-    # -- RGB 96x96 --
+    # ── RGB 96×96 ───────────────────────────────────────
     "stl10": {
         "channels": 3,
         "num_classes": 10,
@@ -79,7 +88,7 @@ datasets: Dict[str, Dict[str, Any]] = {
         "std": (0.2603, 0.2566, 0.2713),
         "description": "STL-10 natural images (10 classes)",
     },
-    # -- RGB 尺寸不固定 --
+    # ── RGB 尺寸不固定 ──────────────────────────────────
     "caltech101": {
         "channels": 3,
         "num_classes": 101,
@@ -121,7 +130,8 @@ def get_dataset_info(name: str) -> Dict[str, Any]:
 
     Returns:
         {"channels": int, "num_classes": int, "image_size": int|None,
-         "mean": tuple, "std": tuple, "description": str}
+         "mean": tuple, "std": tuple, "description": str,
+         "train_kwargs": dict|None, "test_kwargs": dict|None}
     """
     key = name.lower()
     if key not in datasets:
@@ -132,17 +142,20 @@ def get_dataset_info(name: str) -> Dict[str, Any]:
 
 def print_datasets():
     """打印所有已注册数据集(调试用)"""
-    print(f"{'Name':<14} {'Channels':<5} {'Classes':<8} {'Size':<10} {'Description'}")
-    print("-" * 70)
+    print(f"{'Name':<14} {'Ch':<4} {'Classes':<8} {'Size':<10} Description")
+    print("-" * 75)
     for name, info in datasets.items():
         size_str = (
             f"{info['image_size']}x{info['image_size']}"
             if info["image_size"]
             else "variable"
         )
+        extra = ""
+        if "train_kwargs" in info:
+            extra = f"  [kwargs: {list(info['train_kwargs'].keys())}]"
         print(
-            f"  {name:<12} {info['channels']:<5} "
-            f"{info['num_classes']:<8} {size_str:<10} {info['description']}"
+            f"  {name:<12} {info['channels']:<4} "
+            f"{info['num_classes']:<8} {size_str:<10} {info['description']}{extra}"
         )
 
 
