@@ -12,6 +12,7 @@
 """
 
 import json
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -77,10 +78,11 @@ def runBenchmark(
     device: str = DefaultParams.DEVICE,
     epochs: int = 5,
     batchSize: int = 64,
-    numWorkers: int = 4,
+    numWorkers: int = 0,
     dataDir: str = "datasets/",
     seed: int = 42,
     outputDir: Optional[str | Path] = None,
+    visualize: bool = True,
 ) -> Dict:
     """
     对单个(模型, 数据集)组合运行基准测试
@@ -95,9 +97,10 @@ def runBenchmark(
         dataDir:     数据目录
         seed:        随机种子
         outputDir:   结果输出目录(可选)
+        visualize:   是否生成可视化图表
 
     Returns:
-        基准测试结果字典
+        基准测试结果字典(含 history)
     """
     deviceObj = torch.device(device)
     result = {
@@ -133,7 +136,7 @@ def runBenchmark(
     optimizer = createOptimizer(model, "adam", lr=0.001, weight_decay=1e-4)
     scheduler = createScheduler(optimizer, "plateau", factor=0.5, patience=2)
 
-    with torch.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         ckptDir = Path(tmp) / "checkpoints"
         logDir = Path(tmp) / "logs"
         logger = TrainingLogger(logDir, modelName, datasetName)
@@ -158,16 +161,39 @@ def runBenchmark(
 
     result["best_val_acc"] = trainResult["best_metric"]
     result["best_epoch"] = trainResult["best_epoch"]
+    result["history"] = trainResult["history"]
     if trainResult["test_metrics"]:
         result["test_acc"] = trainResult["test_metrics"]["accuracy"]
         result["test_loss"] = trainResult["test_metrics"]["loss"]
 
-    # 保存结果
+    # 可视化
+    if visualize:
+        try:
+            from cnnlib.evaluation.visualize import generateAllCharts
+            from cnnlib.registry.datasets import get_dataset_info
+            from config.paths import getVisualizationDir
+
+            datasetInfo = get_dataset_info(datasetName)
+            visDir = getVisualizationDir(modelName, datasetName) / "benchmark"
+            generateAllCharts(
+                model=model,
+                loader=testLoader,
+                datasetInfo=datasetInfo,
+                saveDir=visDir,
+                history=result["history"],
+                device=device,
+                titlePrefix=f"{modelName}/{datasetName} ",
+            )
+        except Exception as e:
+            print(f"  可视化生成失败: {e}")
+
+    # 保存结果（不含 history，JSON 太大）
     if outputDir is not None:
         outputDir = ensureDir(Path(outputDir))
         outputFile = outputDir / f"{modelName}_{datasetName}.json"
+        saveResult = {k: v for k, v in result.items() if k != "history"}
         with open(outputFile, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+            json.dump(saveResult, f, ensure_ascii=False, indent=2)
 
     return result
 
@@ -199,8 +225,9 @@ def runAllBenchmarks(
     if models is None:
         models = list_models()
     if datasets is None:
-        # 仅选匹配的小数据集
-        datasets = ["mnist", "fashionmnist", "cifar10", "cifar100"]
+        from cnnlib.registry.datasets import list_datasets
+
+        datasets = list_datasets()
 
     results = []
     total = len(models) * len(datasets)
@@ -268,19 +295,194 @@ def _printSummary(results: List[Dict], outputDir: Optional[str | Path] = None) -
         print(f"\n汇总已保存至: {summaryFile}")
 
 
+# ═══════════════════════════════════════════════════════════════
+# 基准测试专用可视化（跨模型对比，非单模型评估）
+# ═══════════════════════════════════════════════════════════════
+
+
+def _autoLabel(results: List[Dict]) -> List[str]:
+    return [f"{r['model']}\n{r['dataset']}" for r in results]
+
+
+def plotBenchmarkSingle(result: Dict, savePath: Optional[str | Path] = None) -> None:
+    """
+    单组基准测试元数据汇总图（参数量、推理时间、模型大小）
+
+    Args:
+        result:   runBenchmark() 的结果
+        savePath: 保存路径（目录或完整路径）
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    matplotlib.use("Agg")
+
+    savePath = Path(savePath) if savePath else None
+    if savePath and savePath.is_dir():
+        savePath = savePath / f"{result['model']}_{result['dataset']}_summary.png"
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+
+    # 参数量
+    axes[0].bar(["Params"], [result["params"] / 1e6], color="#3498db")
+    axes[0].set_ylabel("Million")
+    axes[0].set_title(f"参数量: {result['params']:,}")
+
+    # 模型大小
+    axes[1].bar(["Size"], [result["model_size_mb"]], color="#e74c3c")
+    axes[1].set_ylabel("MB")
+    axes[1].set_title(f"模型大小: {result['model_size_mb']:.1f} MB")
+
+    # 推理时间
+    axes[2].bar(["Inference"], [result["inference_time_ms"]], color="#2ecc71")
+    axes[2].set_ylabel("ms/batch")
+    axes[2].set_title(f"推理时间: {result['inference_time_ms']:.1f} ms")
+
+    fig.suptitle(f"{result['model']} + {result['dataset']} Summary")
+    fig.tight_layout()
+
+    if savePath:
+        savePath.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(str(savePath), dpi=150, bbox_inches="tight")
+        print(f"  → {savePath}")
+    plt.close(fig)
+
+
+def plotBenchmarkAll(results: List[Dict], outputDir: str | Path) -> None:
+    """
+    全量基准测试跨模型对比图
+
+    Args:
+        results:   runAllBenchmarks() 的结果列表
+        outputDir: 输出目录
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.patches import Patch
+
+    matplotlib.use("Agg")
+
+    if not results:
+        print("无数据，跳过出图")
+        return
+
+    outputDir = Path(outputDir)
+    outputDir.mkdir(parents=True, exist_ok=True)
+
+    labels = _autoLabel(results)
+    models = sorted(set(r["model"] for r in results))
+    colors = plt.cm.tab10.colors
+    modelColors = {m: colors[i % len(colors)] for i, m in enumerate(models)}
+
+    print("\n生成基准测试图表...")
+
+    # 1. 参数量对比
+    fig, ax = plt.subplots(figsize=(max(12, len(results) * 0.8), 6))
+    barColors = [modelColors[r["model"]] for r in results]
+    ax.bar(labels, [r["params"] / 1e6 for r in results], color=barColors)
+    ax.set_ylabel("Parameters (M)")
+    ax.set_title("Model Parameter Count")
+    ax.tick_params(axis="x", labelsize=7)
+    legendPatches = [Patch(color=c, label=m) for m, c in modelColors.items()]
+    ax.legend(handles=legendPatches, fontsize=7)
+    fig.tight_layout()
+    path = outputDir / "benchmark_params.png"
+    fig.savefig(str(path), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  → {path}")
+
+    # 2. 准确率对比
+    valAccs = [r.get("best_val_acc", 0) for r in results]
+    testAccs = [r.get("test_acc", 0) for r in results]
+    x = np.arange(len(results))
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(max(12, len(results) * 0.8), 6))
+    ax.bar(x - width / 2, valAccs, width, label="Val Acc", color="#3498db")
+    ax.bar(x + width / 2, testAccs, width, label="Test Acc", color="#2ecc71")
+    ax.set_ylabel("Accuracy (%)")
+    ax.set_title("Accuracy Comparison")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=7)
+    ax.legend()
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    path = outputDir / "benchmark_accuracy.png"
+    fig.savefig(str(path), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  → {path}")
+
+    # 3. 推理时间对比
+    fig, ax = plt.subplots(figsize=(max(12, len(results) * 0.8), 6))
+    barColors = [modelColors[r["model"]] for r in results]
+    ax.bar(labels, [r["inference_time_ms"] for r in results], color=barColors)
+    ax.set_ylabel("Inference Time (ms/batch)")
+    ax.set_title("Inference Time Comparison")
+    ax.tick_params(axis="x", labelsize=7)
+    ax.legend(handles=legendPatches, fontsize=7)
+    fig.tight_layout()
+    path = outputDir / "benchmark_inference.png"
+    fig.savefig(str(path), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  → {path}")
+
+    # 4. 热力图
+    modelsSorted = sorted(set(r["model"] for r in results))
+    datasetsSorted = sorted(set(r["dataset"] for r in results))
+    matrix = np.full((len(modelsSorted), len(datasetsSorted)), np.nan)
+    for r in results:
+        mi = modelsSorted.index(r["model"])
+        di = datasetsSorted.index(r["dataset"])
+        matrix[mi, di] = r.get("best_val_acc", 0)
+
+    fig, ax = plt.subplots(
+        figsize=(len(datasetsSorted) * 1.2 + 4, len(modelsSorted) * 0.8 + 2)
+    )
+    im = ax.imshow(matrix, cmap="RdYlGn", aspect="auto", vmin=0, vmax=100)
+    for i in range(len(modelsSorted)):
+        for j in range(len(datasetsSorted)):
+            val = matrix[i, j]
+            if not np.isnan(val):
+                ax.text(
+                    j,
+                    i,
+                    f"{val:.1f}",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color="black" if 30 < val < 70 else "white",
+                )
+    ax.set_xticks(range(len(datasetsSorted)))
+    ax.set_xticklabels(datasetsSorted, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks(range(len(modelsSorted)))
+    ax.set_yticklabels(modelsSorted, fontsize=9)
+    ax.set_title("Val Accuracy Heatmap (models x datasets)", fontsize=13)
+    plt.colorbar(im, ax=ax, label="Val Acc (%)")
+    fig.tight_layout()
+    path = outputDir / "benchmark_heatmap.png"
+    fig.savefig(str(path), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  → {path}")
+
+    print(f"图表已保存至: {outputDir}")
+
+
 if __name__ == "__main__":
     import sys
 
     device = DefaultParams.DEVICE
     print(f"设备: {device}")
 
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and sys.argv[1] == "--all":
+        runAllBenchmarks(device=device, epochs=3, outputDir="outputs/benchmarks/")
+    elif len(sys.argv) > 1:
         model = sys.argv[1]
         dataset = sys.argv[2] if len(sys.argv) > 2 else "cifar10"
         runBenchmark(
             model, dataset, device=device, epochs=3, outputDir="outputs/benchmarks/"
         )
     else:
-        # 不指定参数时,跑一个快速单例
-        print("用法: python -m cnnlib.experiments.benchmark <model> <dataset>")
+        print("用法:")
+        print("  单组: python -m cnnlib.experiments.benchmark <model> <dataset>")
+        print("  全量: python -m cnnlib.experiments.benchmark --all")
         print("示例: python -m cnnlib.experiments.benchmark lenet mnist")
