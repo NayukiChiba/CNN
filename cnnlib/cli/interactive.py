@@ -17,6 +17,7 @@ from typing import List
 
 import torch
 
+import cnnlib.models  # noqa: F401  # 触发模型注册
 from cnnlib.registry.datasets import get_dataset_info, list_datasets
 from cnnlib.registry.models import get_model_info, list_models
 from config.defaults import DefaultParams
@@ -212,18 +213,20 @@ class InteractiveCLI:
 
     def _showMainMenu(self) -> None:
         """显示主菜单"""
-        print(f"""
-{_C.BOLD}{"─" * 50}{_C.END}
-{_C.BOLD}  模型{_C.END}: {_C.GREEN}{self.model:<14}{_C.END} {_C.BOLD}数据集{_C.END}: {_C.GREEN}{self.dataset:<14}{_C.END} {_C.BOLD}设备{_C.END}: {_C.GREEN}{self.device}{_C.END}
-{_C.BOLD}{"─" * 50}{_C.END}
-  {_C.BOLD}1{_C.END}. 选择模型       {_C.DIM}5{_C.END}. 推理
-  {_C.BOLD}2{_C.END}. 选择数据集     {_C.DIM}6{_C.END}. 基准测试
-  {_C.BOLD}3{_C.END}. 训练模型       {_C.DIM}7{_C.END}. 查看模型列表
-  {_C.BOLD}4{_C.END}. 评估模型       {_C.DIM}8{_C.END}. 查看数据集列表
-                    {_C.DIM}9{_C.END}. 参数设置
-  ──────────────────────────────────────────
-  {_C.DIM}0{_C.END}. 退出
-""")
+        print(
+            f"\n"
+            f"  {_C.BOLD}模型{_C.END}: {_C.GREEN}{self.model:<14}{_C.END}"
+            f"  {_C.BOLD}数据集{_C.END}: {_C.GREEN}{self.dataset:<14}{_C.END}"
+            f"  {_C.BOLD}设备{_C.END}: {_C.GREEN}{self.device}{_C.END}\n"
+            f"\n"
+            f"  {_C.BOLD}1{_C.END}. 选择模型       {_C.DIM}5{_C.END}. 推理\n"
+            f"  {_C.BOLD}2{_C.END}. 选择数据集     {_C.DIM}6{_C.END}. 基准测试\n"
+            f"  {_C.BOLD}3{_C.END}. 训练模型       {_C.DIM}7{_C.END}. 查看模型列表\n"
+            f"  {_C.BOLD}4{_C.END}. 评估模型       {_C.DIM}8{_C.END}. 查看数据集列表\n"
+            f"                      {_C.DIM}9{_C.END}. 参数设置\n"
+            f"\n"
+            f"  {_C.DIM}0{_C.END}. 退出\n"
+        )
 
     # ── 子菜单 ──────────────────────────────────────────────
 
@@ -323,7 +326,7 @@ class InteractiveCLI:
             return
 
         _success("启动训练...")
-        print(f"\n{_C.DIM}{'─' * 60}{_C.END}\n")
+        print()
 
         self._executeTrain()
 
@@ -399,7 +402,7 @@ class InteractiveCLI:
 
         result = trainer.train()
 
-        print(f"\n{_C.BOLD}{'─' * 50}{_C.END}")
+        print()
         bestPath = getBestModelPath(self.model, self.dataset)
         _success(f"训练完成！最佳模型: {bestPath}")
         _info(
@@ -515,23 +518,36 @@ class InteractiveCLI:
         """基准测试流程"""
         _printBox("基准测试")
 
-        _warn("基准测试将下载数据集并训练多个模型,耗时较长")
+        _warn("基准测试将下载数据集并训练模型,耗时较长")
         print()
 
-        _info("当前模型", self.model)
-        _info("当前数据集", self.dataset)
+        mode = _promptChoice(
+            "  模式",
+            ["单组 (当前模型 + 当前数据集)", "全量 (所有模型 × 数据集) "],
+            default="1",
+        )
 
         testEpochs = _promptInt("    训练轮数", 3, 1, 10)
-        confirm = _prompt("  开始基准测试? [y/N]", "n").lower()
-        if confirm not in ("y", "yes"):
-            _warn("已取消")
-            return
 
-        self._executeBenchmark(testEpochs)
+        if "全量" in mode:
+            confirm = _prompt("  开始全量基准测试? [y/N]", "n").lower()
+            if confirm not in ("y", "yes"):
+                _warn("已取消")
+                return
+            self._executeFullBenchmark(testEpochs)
+        else:
+            _info("当前模型", self.model)
+            _info("当前数据集", self.dataset)
+            confirm = _prompt("  开始基准测试? [y/N]", "n").lower()
+            if confirm not in ("y", "yes"):
+                _warn("已取消")
+                return
+            self._executeBenchmark(testEpochs)
 
     def _executeBenchmark(self, epochs: int) -> None:
-        """实际执行基准测试"""
-        from cnnlib.experiments.benchmark import runBenchmark
+        """实际执行单组基准测试"""
+        from cnnlib.experiments.benchmark import plotBenchmarkSingle, runBenchmark
+        from config.paths import VISUALIZATIONS_DIR
 
         _success("启动基准测试...")
         print()
@@ -545,6 +561,35 @@ class InteractiveCLI:
             numWorkers=0,
         )
 
+        self._printBenchmarkResult(result)
+
+        # 出图
+        chartDir = VISUALIZATIONS_DIR / "benchmarks"
+        plotBenchmarkSingle(result, savePath=chartDir)
+
+    def _executeFullBenchmark(self, epochs: int) -> None:
+        """实际执行全量基准测试 + 出图"""
+        from cnnlib.experiments.benchmark import (
+            plotBenchmarkAll,
+            runAllBenchmarks,
+        )
+        from config.paths import VISUALIZATIONS_DIR
+
+        _success("启动全量基准测试...")
+        print()
+
+        results = runAllBenchmarks(
+            device=self.device,
+            epochs=epochs,
+            batchSize=self.batchSize,
+        )
+
+        # 出图
+        chartDir = VISUALIZATIONS_DIR / "benchmarks"
+        plotBenchmarkAll(results, outputDir=chartDir)
+
+    def _printBenchmarkResult(self, result: dict) -> None:
+        """打印基准测试结果"""
         print(f"\n{_C.BOLD}  基准测试结果:{_C.END}")
         _info("模型", result["model"])
         _info("数据集", result["dataset"])

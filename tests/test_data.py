@@ -68,6 +68,33 @@ class TestRegistry:
         assert "train_kwargs" in info
         assert info["train_kwargs"]["split"] == "balanced"
 
+    def test_stl10_has_split_kwargs(self):
+        """STL10 用 split= 而非 train="""
+        info = get_dataset_info("stl10")
+        assert "train_kwargs" in info
+        assert info["train_kwargs"]["split"] == "train"
+        assert info["test_kwargs"]["split"] == "test"
+
+    def test_gtsrb_has_split_kwargs(self):
+        """GTSRB 用 split= 而非 train="""
+        info = get_dataset_info("gtsrb")
+        assert "train_kwargs" in info
+        assert info["train_kwargs"]["split"] == "train"
+        assert info["test_kwargs"]["split"] == "test"
+
+    def test_flowers102_has_split_kwargs(self):
+        """Flowers102 用 split= 而非 train="""
+        info = get_dataset_info("flowers102")
+        assert "train_kwargs" in info
+        assert info["train_kwargs"]["split"] == "train"
+        assert info["test_kwargs"]["split"] == "test"
+
+    def test_caltech101_has_empty_kwargs(self):
+        """Caltech101 无内置分集，kwargs 为空"""
+        info = get_dataset_info("caltech101")
+        assert info.get("train_kwargs") == {}
+        assert info.get("test_kwargs") == {}
+
     def test_default_datasets_no_extra_kwargs(self):
         """MNIST / CIFAR-10 等不需要额外构造参数"""
         for name in ["mnist", "cifar10", "fashionmnist"]:

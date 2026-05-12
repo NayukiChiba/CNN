@@ -87,6 +87,9 @@ datasets: Dict[str, Dict[str, Any]] = {
         "mean": (0.4467, 0.4398, 0.4066),
         "std": (0.2603, 0.2566, 0.2713),
         "description": "STL-10 natural images (10 classes)",
+        # STL10 用 split= 而非 train=
+        "train_kwargs": {"split": "train"},
+        "test_kwargs": {"split": "test"},
     },
     # ── RGB 尺寸不固定 ──────────────────────────────────
     "caltech101": {
@@ -96,6 +99,9 @@ datasets: Dict[str, Dict[str, Any]] = {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225),
         "description": "Caltech-101 objects (101 classes)",
+        # Caltech101 无内置 train/test 分集，全量加载后自行切分
+        "train_kwargs": {},
+        "test_kwargs": {},
     },
     "gtsrb": {
         "channels": 3,
@@ -104,6 +110,9 @@ datasets: Dict[str, Dict[str, Any]] = {
         "mean": (0.3403, 0.3121, 0.3214),
         "std": (0.2724, 0.2608, 0.2669),
         "description": "GTSRB traffic signs (43 classes)",
+        # GTSRB 用 split= 而非 train=
+        "train_kwargs": {"split": "train"},
+        "test_kwargs": {"split": "test"},
     },
     "flowers102": {
         "channels": 3,
@@ -112,6 +121,9 @@ datasets: Dict[str, Dict[str, Any]] = {
         "mean": (0.485, 0.456, 0.406),
         "std": (0.229, 0.224, 0.225),
         "description": "Oxford Flowers-102 (102 classes)",
+        # Flowers102 用 split= 而非 train=（split 取值: train/val/test）
+        "train_kwargs": {"split": "train"},
+        "test_kwargs": {"split": "test"},
     },
 }
 
