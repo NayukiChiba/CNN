@@ -55,6 +55,13 @@ def runInference(args: argparse.Namespace) -> None:
     inferRun(args)
 
 
+def runBenchmark(args: argparse.Namespace) -> None:
+    """Benchmark subcommand — delegates to scripts/benchmark.py."""
+    from scripts.benchmark import run as benchmarkRun
+
+    benchmarkRun(args)
+
+
 def runInteractive(_args: argparse.Namespace | None = None) -> None:
     """交互式菜单 — 无参数时自动进入。"""
     from cnnlib.cli.interactive import InteractiveCLI
@@ -122,6 +129,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         "train": runTrain,
         "eval": runEval,
         "infer": runInference,
+        "benchmark": runBenchmark,
     }
     dispatch[args.command](args)
     # Equivalent expanded form:
